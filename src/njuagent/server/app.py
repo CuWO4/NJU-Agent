@@ -60,6 +60,11 @@ class PendingAction(BaseModel):
     all: bool = False
 
 
+class EditMessageRequest(BaseModel):
+    index: int
+    content: str
+
+
 class TaskState:
     def __init__(self) -> None:
         self.stop_event = asyncio.Event()
@@ -262,6 +267,28 @@ def create_app(workdir: str, config: Config) -> FastAPI:
             current = Path(path).read_text(encoding="utf-8", errors="replace")
             files.append({"path": path, "diff": _diff(previous, current)})
         return {"files": files}
+
+    @app.post("/api/messages/edit")
+    async def edit_message(req: EditMessageRequest) -> dict:
+        """Edit a past user message and drop everything after it (rewind).
+
+        Only the conversation state is changed (no file side effects). Any
+        unresolved pending changes must be resolved first.
+        """
+        if app_state.pending.list_pending():
+            raise HTTPException(
+                status_code=409,
+                detail="resolve pending file changes (accept or rollback) first",
+            )
+        messages = app_state.session.messages
+        if not 0 <= req.index < len(messages):
+            raise HTTPException(status_code=404, detail="message index out of range")
+        if messages[req.index].get("role") != "user":
+            raise HTTPException(status_code=400, detail="only user messages can be edited")
+        messages[req.index]["content"] = req.content
+        del messages[req.index + 1 :]
+        app_state._save_state()
+        return {"ok": True}
 
     @app.post("/api/pending/accept")
     async def accept(req: PendingAction) -> dict:

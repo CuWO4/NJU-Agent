@@ -108,12 +108,63 @@ function stripPlanPrefix(text) {
 
 /* ---------- conversation rendering ---------- */
 
-function addUserMessage(text) {
+function addUserMessage(text, index) {
   const div = document.createElement("div");
   div.className = "user";
   div.innerHTML = renderMarkdown(stripPlanPrefix(text));
+  if (index !== undefined) {
+    div.dataset.index = index;
+    div.dataset.raw = text;
+    const btn = document.createElement("button");
+    btn.className = "edit-btn";
+    btn.textContent = "Edit";
+    btn.title = "Edit this message and rewind the conversation from here";
+    btn.onclick = () => startEdit(div);
+    div.appendChild(btn);
+  }
   $("messages").appendChild(div);
   div.scrollIntoView({ block: "end" });
+}
+
+function startEdit(div) {
+  const raw = div.dataset.raw || "";
+  div.classList.add("editing");
+  div.innerHTML = "";
+  const ta = document.createElement("textarea");
+  ta.className = "edit-input";
+  ta.value = raw;
+  const save = document.createElement("button");
+  save.className = "edit-save";
+  save.textContent = "Save";
+  const cancel = document.createElement("button");
+  cancel.className = "edit-cancel";
+  cancel.textContent = "Cancel";
+  save.onclick = async () => {
+    try {
+      await postJson("/api/messages/edit", {
+        index: Number(div.dataset.index),
+        content: ta.value,
+      });
+      await reloadConversation();
+    } catch (err) {
+      showError(err.message);
+    }
+  };
+  cancel.onclick = reloadConversation;
+  div.append(ta, save, cancel);
+  ta.focus();
+}
+
+async function reloadConversation() {
+  try {
+    const s = await api("/api/state");
+    state.uiManifest = {};
+    for (const t of s.ui_manifest || []) state.uiManifest[t.name] = t;
+    renderHistory(s.messages);
+    await renderPending();
+  } catch (err) {
+    showError(err.message);
+  }
 }
 
 function appendThinking(text) {
@@ -279,7 +330,9 @@ function connect(taskId) {
     handleEvent(ev);
   };
   es.onerror = () => {
-    // stream closed by the server (task ended) or network error; ignore
+    // The stream ended (task finished) or the server restarted; close the
+    // connection so the browser does not keep reconnecting to a dead task.
+    es.close();
   };
   return es;
 }
@@ -531,10 +584,11 @@ async function init() {
 function renderHistory(messages) {
   const box = $("messages");
   box.innerHTML = "";
-  for (const m of messages) {
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
     if (m.role === "system") continue;
     if (m.role === "user") {
-      addUserMessage(m.content);
+      addUserMessage(m.content, i);
     } else if (m.role === "assistant") {
       if (m.content) {
         const div = document.createElement("div");

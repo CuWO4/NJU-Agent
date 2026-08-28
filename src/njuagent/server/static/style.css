@@ -159,7 +159,51 @@ main {
   border-radius: 8px;
   word-break: break-word;
   line-height: 1.5;
+  position: relative;
 }
+.messages .user .edit-btn {
+  position: absolute;
+  top: -0.4rem;
+  right: -0.4rem;
+  display: none;
+  font: inherit;
+  font-size: 11px;
+  padding: .1rem .4rem;
+  border: 1px solid #3c3c3c;
+  border-radius: 2px;
+  background: #3c3c3c;
+  color: #d4d4d4;
+  cursor: pointer;
+}
+.messages .user:hover .edit-btn { display: block; }
+.messages .user.editing { background: #1e1e1e; border: 1px solid #007acc; }
+.edit-input {
+  width: 100%;
+  min-height: 5rem;
+  font: inherit;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  padding: .4rem;
+  border: 1px solid #3c3c3c;
+  border-radius: 2px;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  resize: vertical;
+  box-sizing: border-box;
+}
+.edit-save, .edit-cancel {
+  margin-top: .4rem;
+  margin-right: .4rem;
+  padding: .25rem .7rem;
+  font: inherit;
+  cursor: pointer;
+  border-radius: 2px;
+  border: 1px solid #3c3c3c;
+  background: #3c3c3c;
+  color: #d4d4d4;
+}
+.edit-save { background: #0e639c; color: #fff; border-color: #0e639c; }
+.edit-save:hover { background: #1177bb; }
 .messages .assistant, .messages .thinking {
   align-self: flex-start;
   max-width: 95%;

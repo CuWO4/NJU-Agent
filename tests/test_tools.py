@@ -52,6 +52,17 @@ def test_write_file_records_pending(tmp_path: Path):
     assert f.read_text(encoding="utf-8") == "v2"
 
 
+def test_write_new_file_records_pending_and_rollback_deletes(tmp_path: Path):
+    pending = PendingChanges()
+    reg = build_tool_registry(str(tmp_path), pending)
+    f = tmp_path / "new.txt"
+    _run(reg.execute("write_file", '{"path":"new.txt","content":"hello"}'))
+    assert pending.is_pending(str(f))
+    assert f.read_text(encoding="utf-8") == "hello"
+    pending.rollback(str(f))
+    assert not f.exists()
+
+
 def test_search_glob_and_content(tmp_path: Path):
     reg = build_tool_registry(str(tmp_path), PendingChanges())
     (tmp_path / "one.py").write_text("def foo():\n    pass\n", encoding="utf-8")
@@ -72,3 +83,17 @@ def test_run_command_failure_returns_exit_code(tmp_path: Path):
     reg = build_tool_registry(str(tmp_path), PendingChanges())
     out = _run(reg.execute("run_command", '{"command":"exit 3"}'))
     assert "exit code 3" in out
+
+
+def test_ui_info_returns_display_fields(tmp_path: Path):
+    reg = build_tool_registry(str(tmp_path), PendingChanges())
+    info = reg.ui_info("run_command", '{"command":"python --version"}')
+    assert info["ui_name"] == "run command"
+    assert info["ui_args"] == ["python --version"]
+    info = reg.ui_info("list_dir", "{}")
+    assert info["ui_name"] == "list directory"
+    assert info["ui_args"] == []
+    info = reg.ui_info("write_file", '{"path":"a.py","content":"secret"}')
+    assert info["ui_args"] == ["a.py"]
+    info = reg.ui_info("nope", "{}")
+    assert info["ui_name"] == "nope"

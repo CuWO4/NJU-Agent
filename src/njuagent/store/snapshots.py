@@ -24,6 +24,10 @@ class PendingChanges:
     def is_pending(self, path: str) -> bool:
         return path in self._pending
 
+    def snapshot_of(self, path: str) -> str | None:
+        """Return the previous content recorded for a pending path (None if absent)."""
+        return self._pending.get(path)
+
     def list_pending(self) -> list[str]:
         return list(self._pending)
 

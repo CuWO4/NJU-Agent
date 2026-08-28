@@ -27,6 +27,8 @@ class ApprovalGate:
 
     def set_mode(self, mode: ApprovalMode) -> None:
         self.mode = mode
+        if mode == ApprovalMode.AUTO and self._waiter is not None and not self._waiter.done():
+            self.resolve(True)
 
     def is_auto(self) -> bool:
         return self.mode == ApprovalMode.AUTO

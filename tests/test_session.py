@@ -2,7 +2,7 @@
 
 from njuagent.agent.parser import Completion, StreamedMessage, ToolCall
 from njuagent.agent.prompts import build_main_prompt
-from njuagent.agent.session import Session
+from njuagent.agent.session import Session, sanitize_messages
 
 
 def test_session_message_structure(tmp_path):
@@ -36,3 +36,29 @@ def test_session_tool_calls_and_results(tmp_path):
         "name": "list_dir",
         "content": "a.txt",
     }
+
+
+def test_sanitize_removes_incomplete_tool_calls():
+    messages = [
+        {"role": "system", "content": "s"},
+        {"role": "user", "content": "u"},
+        {"role": "assistant", "content": None, "tool_calls": [{"id": "c1"}]},
+    ]
+    assert sanitize_messages(messages) == messages[:2]
+
+
+def test_sanitize_keeps_complete_tool_calls():
+    messages = [
+        {"role": "system", "content": "s"},
+        {"role": "assistant", "content": None, "tool_calls": [{"id": "c1"}]},
+        {"role": "tool", "tool_call_id": "c1", "content": "ok"},
+    ]
+    assert sanitize_messages(messages) == messages
+
+
+def test_sanitize_removes_partial_parallel_calls():
+    messages = [
+        {"role": "assistant", "content": None, "tool_calls": [{"id": "c1"}, {"id": "c2"}]},
+        {"role": "tool", "tool_call_id": "c1", "content": "ok"},
+    ]
+    assert sanitize_messages(messages) == []

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 
@@ -46,8 +46,13 @@ class DeepSeekClient:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
         max_tokens: int | None = None,
+        on_content: Callable[[str], None] | None = None,
     ) -> Completion:
-        """Send a chat request and return the accumulated completion."""
+        """Send a chat request and return the accumulated completion.
+
+        `on_content` is invoked for each streamed text chunk (for live UI
+        updates); tool-call chunks are accumulated internally.
+        """
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": messages,
@@ -62,7 +67,7 @@ class DeepSeekClient:
         async with httpx.AsyncClient(timeout=self.timeout) as http:
             for attempt in range(self.max_retries + 1):
                 try:
-                    return await self._stream_once(http, payload, headers)
+                    return await self._stream_once(http, payload, headers, on_content)
                 except ApiError as exc:
                     if attempt >= self.max_retries:
                         raise
@@ -81,6 +86,7 @@ class DeepSeekClient:
         http: httpx.AsyncClient,
         payload: dict[str, Any],
         headers: dict[str, str],
+        on_content: Callable[[str], None] | None = None,
     ) -> Completion:
         parser = StreamParser()
         try:
@@ -101,7 +107,7 @@ class DeepSeekClient:
                         continue
                     if data == "[DONE]":
                         break
-                    parser.feed(data)
+                    parser.feed(data, on_content)
         except (httpx.HTTPError, ParseError) as exc:
             raise ApiError(str(exc)) from exc
         return parser.result()

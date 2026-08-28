@@ -4,35 +4,55 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>njuagent</title>
-<style>
-  body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 760px; padding: 0 1rem; }
-  textarea { width: 100%; min-height: 6rem; font: inherit; padding: .5rem; box-sizing: border-box; }
-  button { margin-top: .5rem; padding: .5rem 1.5rem; font: inherit; cursor: pointer; }
-  pre { white-space: pre-wrap; word-break: break-word; background: #f5f5f5; border-radius: 6px; padding: 1rem; }
-</style>
+<link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<h1>njuagent</h1>
-<textarea id="input" placeholder="Describe a programming task for the agent..."></textarea>
-<div><button id="run">Run</button></div>
-<pre id="output">Ready.</pre>
-<script>
-  const input = document.getElementById("input");
-  const output = document.getElementById("output");
-  async function run() {
-    const message = input.value.trim();
-    if (!message) return;
-    output.textContent = "running...";
-    const resp = await fetch("/api/run", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message }),
-    });
-    const data = await resp.json();
-    output.textContent = data.result;
-  }
-  document.getElementById("run").addEventListener("click", run);
-  input.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) run(); });
-</script>
+<header>
+  <div class="brand">njuagent</div>
+  <div class="workdir" id="workdir" title="working directory"></div>
+  <div class="toolbar">
+    <label title="Prepend the plan-mode prefix to the next request">
+      <input type="checkbox" id="planMode"> Plan
+    </label>
+    <label title="Skip command approval for this session">
+      <input type="checkbox" id="autoApprove"> Auto-approve
+    </label>
+    <button id="stopBtn" disabled>Stop</button>
+    <span class="cost" id="cost"></span>
+  </div>
+</header>
+<main>
+  <aside class="pane tree-pane">
+    <div class="pane-title">Files</div>
+    <div id="tree" class="tree"></div>
+  </aside>
+  <section class="pane editor-pane">
+    <div class="pane-title" id="editorTitle">Select a file</div>
+    <textarea id="editor" spellcheck="false" disabled
+      placeholder="Select a file in the tree to view or edit."></textarea>
+    <div class="editor-bar">
+      <span class="file-status" id="fileStatus"></span>
+      <button id="saveBtn" disabled>Save</button>
+    </div>
+  </section>
+  <section class="pane chat-pane">
+    <div class="pane-title">Conversation</div>
+    <div id="messages" class="messages"></div>
+    <div class="pending-box" id="pendingBox" hidden>
+      <div class="pending-title">Modified files
+        <span class="pending-actions">
+          <button id="acceptAll">Accept all</button>
+          <button id="rollbackAll">Rollback all</button>
+        </span>
+      </div>
+      <div id="pendingList" class="pending-list"></div>
+    </div>
+    <form id="inputForm" class="input-row">
+      <textarea id="input" placeholder="Describe a programming task..." rows="2"></textarea>
+      <button id="sendBtn" type="submit">Send</button>
+    </form>
+  </section>
+</main>
+<script src="/static/app.js"></script>
 </body>
 </html>

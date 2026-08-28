@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from typing import Callable
 
 
 class ParseError(Exception):
@@ -56,7 +57,7 @@ class StreamParser:
         self._finish_reason: str | None = None
         self._usage: dict | None = None
 
-    def feed(self, data: str) -> None:
+    def feed(self, data: str, on_content: Callable[[str], None] | None = None) -> None:
         """Feed one `data:` payload (already stripped of the prefix)."""
         try:
             chunk = json.loads(data)
@@ -74,6 +75,8 @@ class StreamParser:
             content = delta.get("content")
             if content:
                 self._content_parts.append(content)
+                if on_content:
+                    on_content(content)
             for tc in delta.get("tool_calls") or []:
                 index = tc.get("index", 0)
                 call = self._tool_calls.setdefault(index, ToolCall(index=index))

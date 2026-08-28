@@ -17,7 +17,7 @@ class FakeClient:
         self.responses = list(responses)
         self.requested_messages = []
 
-    async def chat(self, messages, tools=None, max_tokens=None):
+    async def chat(self, messages, tools=None, max_tokens=None, on_content=None):
         self.requested_messages.append(list(messages))
         return self.responses.pop(0)
 
@@ -99,3 +99,33 @@ def test_loop_stop_event_aborts(tmp_path: Path):
     stop.set()
     result = _run(loop.run("hi"))
     assert result == "(stopped by user)"
+
+
+def test_loop_sanitizes_leftover_incomplete_tool_calls(tmp_path: Path):
+    client = FakeClient([_text_completion("done")])
+    session = Session(str(tmp_path), build_main_prompt())
+    # simulate a leftover incomplete tool-call message (e.g. after a stop)
+    session.messages.append(
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "c1",
+                    "type": "function",
+                    "function": {"name": "list_dir", "arguments": "{}"},
+                }
+            ],
+        }
+    )
+    loop = AgentLoop(
+        session,
+        client,
+        build_tool_registry(str(tmp_path), PendingChanges()),
+        ApprovalGate(),
+        PendingChanges(),
+    )
+    result = _run(loop.run("hi"))
+    assert result == "done"
+    sent = client.requested_messages[0]
+    assert not any(m.get("role") == "assistant" and m.get("tool_calls") for m in sent)

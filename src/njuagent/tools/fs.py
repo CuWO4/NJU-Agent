@@ -116,7 +116,6 @@ def make_write_file_impl(
         path.parent.mkdir(parents=True, exist_ok=True)
         previous = path.read_text(encoding="utf-8", errors="replace") if path.exists() else None
         path.write_text(content, encoding="utf-8")
-        if previous is not None:
-            pending.record(str(path), previous)
+        pending.record(str(path), previous)
         return f"Wrote {len(content)} chars to {path}"
     return impl

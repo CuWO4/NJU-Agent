@@ -96,12 +96,22 @@ const postJson = (path, body) =>
     body: JSON.stringify(body),
   });
 
+const PLAN_PREFIX =
+  "<system reminder>plan mode is opened in this turn of conversation</system reminder>";
+
+function stripPlanPrefix(text) {
+  if (text.startsWith(PLAN_PREFIX)) {
+    return text.slice(PLAN_PREFIX.length).replace(/^\n+/, "");
+  }
+  return text;
+}
+
 /* ---------- conversation rendering ---------- */
 
 function addUserMessage(text) {
   const div = document.createElement("div");
   div.className = "user";
-  div.innerHTML = renderMarkdown(text);
+  div.innerHTML = renderMarkdown(stripPlanPrefix(text));
   $("messages").appendChild(div);
   div.scrollIntoView({ block: "end" });
 }

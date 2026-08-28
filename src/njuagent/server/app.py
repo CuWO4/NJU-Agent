@@ -17,6 +17,7 @@ from ..agent.client import DeepSeekClient
 from ..agent.loop import AgentLoop
 from ..agent.prompts import PLAN_MODE_PREFIX, build_main_prompt
 from ..agent.session import Session
+from ..agent.skills import load_skills
 from ..approval import ApprovalGate, ApprovalMode
 from ..config import Config
 from ..store.persistence import SessionStore
@@ -107,6 +108,14 @@ class AgentApp:
         self.store.save_messages(self.session.messages)
         self.store.save_pending(self.pending.dump())
 
+    def _refresh_system_prompt(self) -> None:
+        """Rebuild the system prompt from the latest skill files."""
+        prompt = build_main_prompt(skills=load_skills(self.workdir))
+        if self.session.messages and self.session.messages[0].get("role") == "system":
+            self.session.messages[0]["content"] = prompt
+        else:
+            self.session.messages.insert(0, {"role": "system", "content": prompt})
+
     def _save_settings(self) -> None:
         self.store.save_meta(
             {"auto_approve": self.auto_approve, "plan_mode": self.plan_mode}
@@ -158,6 +167,7 @@ def create_app(workdir: str, config: Config) -> FastAPI:
 
         async def _run() -> None:
             try:
+                app_state._refresh_system_prompt()
                 message = req.message
                 if app_state.plan_mode:
                     message = f"{PLAN_MODE_PREFIX}\n{message}"

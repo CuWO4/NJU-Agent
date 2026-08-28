@@ -1,2 +1,15 @@
 .*/
 *.pdf
+
+# credentials - never commit
+.env
+.env.local
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+.venv/

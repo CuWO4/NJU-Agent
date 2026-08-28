@@ -7,6 +7,15 @@ PLAN_MODE_PREFIX = (
     "</system reminder>"
 )
 
+PLAN_MODE_RULE = (
+    "Plan mode: if the user message begins with the plan-mode prefix "
+    f"({PLAN_MODE_PREFIX!r}), you are in plan mode for this turn: do NOT "
+    "modify any files and do NOT run commands. First produce a concise plan "
+    "of what you will do, then stop and wait for the user to approve it. "
+    "When the user approves in a later turn (without the prefix), execute "
+    "the plan."
+)
+
 MAIN_SYSTEM_PROMPT = """You are njuagent, a coding agent operating inside a working directory.
 
 Your job is to complete programming tasks given by the user by reading and
@@ -38,16 +47,9 @@ Rules:
 """
 
 
-def build_main_prompt(plan_mode: bool = False, skills: list[str] | None = None) -> str:
-    """Assemble the main system prompt with optional plan-mode rule and skills."""
-    parts = [MAIN_SYSTEM_PROMPT]
-    if plan_mode:
-        parts.append(
-            "Plan mode: when the user message starts with the plan-mode "
-            f"prefix ({PLAN_MODE_PREFIX!r}), do not modify any files. First "
-            "produce a plan of what you will do, then wait for the user to "
-            "approve it before executing."
-        )
+def build_main_prompt(skills: list[str] | None = None) -> str:
+    """Assemble the main system prompt with the plan-mode rule and skills."""
+    parts = [MAIN_SYSTEM_PROMPT, PLAN_MODE_RULE]
     for skill in skills or []:
         parts.append(skill)
     return "\n\n".join(parts)

@@ -40,6 +40,17 @@ class Config:
     api_key: str
     base_url: str = "https://api.deepseek.com"
     model: str = "deepseek-chat"
+    # Compression is a heavy loss, so the limit is set to the model's real
+    # context size (1M tokens); it is never triggered in practice.
+    context_limit: int = 1_000_000
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    try:
+        return int(raw) if raw else default
+    except ValueError:
+        return default
 
 
 def load_config() -> Config:
@@ -55,4 +66,5 @@ def load_config() -> Config:
         api_key=key,
         base_url=os.environ.get("NJUAGENT_BASE_URL", "https://api.deepseek.com"),
         model=os.environ.get("NJUAGENT_MODEL", "deepseek-chat"),
+        context_limit=_env_int("NJUAGENT_CONTEXT_LIMIT", 1_000_000),
     )

@@ -83,6 +83,7 @@ class AgentApp:
 
     def __init__(self, workdir: str, config: Config) -> None:
         self.workdir = workdir
+        self.config = config
         self.store = SessionStore(workdir)
         meta = self.store.load_meta()
         self.auto_approve = bool(meta.get("auto_approve", False))
@@ -100,8 +101,10 @@ class AgentApp:
             if loaded[0].get("role") == "system":
                 loaded[0] = {"role": "system", "content": build_main_prompt()}
             self.session.messages = loaded
-        self.registry = build_tool_registry(workdir, self.pending)
         self.client = DeepSeekClient(config.api_key, config.base_url, config.model)
+        self.registry = build_tool_registry(
+            workdir, self.pending, client=self.client, approval=self.approval
+        )
         self.tasks: dict[str, TaskState] = {}
 
     def _save_state(self) -> None:
@@ -136,6 +139,7 @@ class AgentApp:
             stop_event=task.stop_event,
             emit=task.bus.emit,
             on_state_change=self._save_state,
+            context_limit=self.config.context_limit,
         )
 
 

@@ -36,6 +36,8 @@ class AgentLoop:
         stop_event: asyncio.Event | None = None,
         emit: Emit | None = None,
         on_state_change: Callable[[], None] | None = None,
+        context_limit: int = 1_000_000,
+        keep_recent: int = 3,
     ) -> None:
         self.session = session
         self.client = client
@@ -45,6 +47,8 @@ class AgentLoop:
         self.stop_event = stop_event or asyncio.Event()
         self.emit: Emit = emit or (lambda _event: None)
         self.on_state_change: Callable[[], None] = on_state_change or (lambda: None)
+        self.context_limit = context_limit
+        self.keep_recent = keep_recent
         self.iterations = 0
 
     async def run(self, user_input: str) -> str:
@@ -62,6 +66,9 @@ class AgentLoop:
             )
             if completion.usage:
                 self.emit({"type": "cost", "usage": completion.usage})
+            usage = completion.usage
+            if isinstance(usage, dict) and usage.get("prompt_tokens", 0) > self.context_limit:
+                await self._compress()
             calls = completion.message.tool_calls
             if not calls:
                 text = completion.message.content or "(no output)"
@@ -71,11 +78,86 @@ class AgentLoop:
                 return text
             self.session.add_assistant_tool_calls(completion)
             self.on_state_change()
+            results: dict[str, str] = {}
+
+            async def run_one(call: ToolCall) -> None:
+                results[call.id] = await self._run_tool(call)
+
+            free_calls = [c for c in calls if not self._needs_approval(c)]
+            blocked_calls = [c for c in calls if self._needs_approval(c)]
+            if free_calls:
+                await asyncio.gather(*(run_one(c) for c in free_calls))
+            for call in blocked_calls:
+                await run_one(call)
             for call in calls:
-                result = await self._run_tool(call)
-                self.session.add_tool_result(call.id, call.name, result)
+                self.session.add_tool_result(call.id, call.name, results[call.id])
                 self.on_state_change()
         return "(stopped by user)"
+
+    @staticmethod
+    def _split_for_compression(
+        messages: list[dict[str, Any]], keep_recent: int
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Split messages into (compress, keep) on whole turn boundaries.
+
+        Tool messages are never counted toward `keep_recent`; a turn (a user
+        or assistant message plus its tool results) is always kept whole so a
+        tool-call block is never split.
+        """
+        kept: list[dict[str, Any]] = []
+        visible = 0
+        for msg in reversed(messages):
+            kept.append(msg)
+            if msg.get("role") != "tool":
+                visible += 1
+                if visible >= keep_recent:
+                    break
+        kept.reverse()
+        split = len(messages) - len(kept)
+        return messages[:split], kept
+
+    async def _compress(self) -> None:
+        """Replace older messages with an API-generated summary when the
+        context exceeds the limit. Keeps the system prompt and the most recent
+        whole turns intact."""
+        system = self.session.messages[:1]
+        old, recent = self._split_for_compression(
+            self.session.messages[1:], self.keep_recent
+        )
+        if not old:
+            return
+        try:
+            summary = await self._summarize(old)
+        except Exception as exc:  # noqa: BLE001 - compression is best-effort
+            logger.warning("conversation compression failed: %s", exc)
+            return
+        self.session.messages = system + [
+            {
+                "role": "system",
+                "content": f"Summary of the earlier conversation:\n{summary}",
+            }
+        ] + recent
+        logger.info(
+            "compressed conversation: %d -> %d messages",
+            len(self.session.messages) + len(old),
+            len(self.session.messages),
+        )
+        self.on_state_change()
+
+    async def _summarize(self, messages: list[dict[str, Any]]) -> str:
+        completion = await self.client.chat(
+            [
+                {
+                    "role": "system",
+                    "content": "Summarize the following conversation concisely, "
+                    "preserving important details such as file paths, decisions, "
+                    "and the current task state.",
+                },
+                *messages,
+            ],
+            max_tokens=1024,
+        )
+        return completion.message.content or ""
 
     def _outside_workdir(self, path: str) -> bool:
         """True if a path resolves outside the working directory."""

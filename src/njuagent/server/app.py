@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import difflib
-import os
 import uuid
 from pathlib import Path
 
@@ -23,7 +22,7 @@ from ..config import Config
 from ..store.persistence import SessionStore
 from ..store.snapshots import PendingChanges
 from ..tools import build_tool_registry
-from ..tools.fs import resolve
+from ..tools.fs import list_entries, resolve
 from .events import EventBus
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -229,10 +228,10 @@ def create_app(workdir: str, config: Config) -> FastAPI:
         base = resolve(app_state.workdir, path)
         if not base.is_dir():
             raise HTTPException(status_code=404, detail="not a directory")
-        entries = []
-        for name in sorted(os.listdir(base)):
-            full = base / name
-            entries.append({"name": name, "type": "dir" if full.is_dir() else "file"})
+        entries = [
+            {"name": name, "type": "dir" if is_dir else "file"}
+            for name, is_dir in list_entries(base)
+        ]
         return {"path": str(base), "entries": entries}
 
     @app.get("/api/file")

@@ -38,9 +38,6 @@ class ToolRegistry:
     def schemas(self) -> list[dict[str, Any]]:
         return [t["schema"] for t in self._tools.values()]
 
-    def has(self, name: str) -> bool:
-        return name in self._tools
-
     def manifest(self) -> list[dict[str, Any]]:
         """UI metadata for every tool (used to render historical calls)."""
         return [

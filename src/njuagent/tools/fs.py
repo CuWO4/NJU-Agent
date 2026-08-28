@@ -21,6 +21,11 @@ def resolve(workdir: str, path: str) -> Path:
     return p
 
 
+def list_entries(path: Path) -> list[tuple[str, bool]]:
+    """Sorted (name, is_dir) entries of a directory."""
+    return [(name, (path / name).is_dir()) for name in sorted(os.listdir(path))]
+
+
 def list_dir_schema() -> dict:
     return {
         "type": "function",
@@ -83,8 +88,7 @@ def make_list_dir_impl(workdir: str) -> Callable[[dict[str, Any]], Awaitable[str
         base = resolve(workdir, args.get("path", "."))
         if not base.is_dir():
             return f"Error: not a directory: {base}"
-        entries = sorted(os.listdir(base))
-        lines = [("d " if (base / e).is_dir() else "f ") + e for e in entries]
+        lines = [("d " if is_dir else "f ") + name for name, is_dir in list_entries(base)]
         return "\n".join(lines) if lines else "(empty directory)"
     return impl
 

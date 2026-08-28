@@ -10,16 +10,23 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Callable
 
 
 class PendingChanges:
-    def __init__(self) -> None:
+    def __init__(self, on_change: Callable[[], None] | None = None) -> None:
         # path -> previous content (None means the file did not exist before)
         self._pending: dict[str, str | None] = {}
+        self._on_change = on_change
+
+    def _changed(self) -> None:
+        if self._on_change is not None:
+            self._on_change()
 
     def record(self, path: str, previous_content: str | None) -> None:
         if path not in self._pending:
             self._pending[path] = previous_content
+            self._changed()
 
     def is_pending(self, path: str) -> bool:
         return path in self._pending
@@ -32,10 +39,14 @@ class PendingChanges:
         return list(self._pending)
 
     def accept(self, path: str) -> None:
-        self._pending.pop(path, None)
+        if path in self._pending:
+            del self._pending[path]
+            self._changed()
 
     def accept_all(self) -> None:
-        self._pending.clear()
+        if self._pending:
+            self._pending.clear()
+            self._changed()
 
     def rollback(self, path: str) -> None:
         previous = self._pending.pop(path, None)
@@ -43,7 +54,14 @@ class PendingChanges:
             Path(path).unlink(missing_ok=True)
         else:
             Path(path).write_text(previous, encoding="utf-8")
+        self._changed()
 
     def rollback_all(self) -> None:
         for path in list(self._pending):
             self.rollback(path)
+
+    def dump(self) -> dict[str, str | None]:
+        return dict(self._pending)
+
+    def restore(self, data: dict[str, str | None]) -> None:
+        self._pending = dict(data)

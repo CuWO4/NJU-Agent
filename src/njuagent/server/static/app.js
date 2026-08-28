@@ -292,28 +292,36 @@ function handleEvent(ev) {
 
 /* ---------- task control ---------- */
 
+function setRunning(running) {
+  const btn = $("sendBtn");
+  btn.textContent = running ? "Stop" : "Send";
+  btn.classList.toggle("stop", running);
+  btn.disabled = false;
+}
+
 async function sendMessage() {
   const text = $("input").value.trim();
   if (!text || state.taskId) return;
   $("input").value = "";
   addUserMessage(text);
-  $("sendBtn").disabled = true;
-  $("stopBtn").disabled = false;
+  setRunning(true);
   try {
     const resp = await postJson("/api/chat", { message: text });
     state.taskId = resp.task_id;
     connect(resp.task_id);
   } catch (err) {
     showError(err.message);
-    $("sendBtn").disabled = false;
-    $("stopBtn").disabled = true;
+    setRunning(false);
   }
+}
+
+function stopTask() {
+  if (state.taskId) postJson("/api/stop", { task_id: state.taskId }).catch(console.error);
 }
 
 function endTask() {
   state.taskId = null;
-  $("stopBtn").disabled = true;
-  $("sendBtn").disabled = false;
+  setRunning(false);
   $("input").focus();
 }
 
@@ -458,10 +466,8 @@ async function refreshAfterPending(path) {
 async function init() {
   $("inputForm").addEventListener("submit", (e) => {
     e.preventDefault();
-    sendMessage();
-  });
-  $("stopBtn").addEventListener("click", async () => {
-    if (state.taskId) await postJson("/api/stop", { task_id: state.taskId }).catch(console.error);
+    if (state.taskId) stopTask();
+    else sendMessage();
   });
   $("autoApprove").addEventListener("change", async (e) => {
     state.autoApprove = e.target.checked;

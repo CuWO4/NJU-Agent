@@ -35,6 +35,7 @@ class AgentLoop:
         pending: PendingChanges,
         stop_event: asyncio.Event | None = None,
         emit: Emit | None = None,
+        on_state_change: Callable[[], None] | None = None,
     ) -> None:
         self.session = session
         self.client = client
@@ -43,10 +44,12 @@ class AgentLoop:
         self.pending = pending
         self.stop_event = stop_event or asyncio.Event()
         self.emit: Emit = emit or (lambda _event: None)
+        self.on_state_change: Callable[[], None] = on_state_change or (lambda: None)
         self.iterations = 0
 
     async def run(self, user_input: str) -> str:
         self.session.add_user(user_input)
+        self.on_state_change()
         while not self.stop_event.is_set():
             self.session.messages = sanitize_messages(self.session.messages)
             self.iterations += 1
@@ -64,11 +67,14 @@ class AgentLoop:
                 text = completion.message.content or "(no output)"
                 self.emit({"type": "message.done", "content": text})
                 self.session.add_assistant(text)
+                self.on_state_change()
                 return text
             self.session.add_assistant_tool_calls(completion)
+            self.on_state_change()
             for call in calls:
                 result = await self._run_tool(call)
                 self.session.add_tool_result(call.id, call.name, result)
+                self.on_state_change()
         return "(stopped by user)"
 
     def _outside_workdir(self, path: str) -> bool:

@@ -19,6 +19,7 @@ from ..agent.prompts import PLAN_MODE_PREFIX, build_main_prompt
 from ..agent.session import Session
 from ..approval import ApprovalGate, ApprovalMode
 from ..config import Config
+from ..store.persistence import SessionStore
 from ..store.snapshots import PendingChanges
 from ..tools import build_tool_registry
 from ..tools.fs import resolve
@@ -81,14 +82,35 @@ class AgentApp:
 
     def __init__(self, workdir: str, config: Config) -> None:
         self.workdir = workdir
-        self.pending = PendingChanges()
-        self.approval = ApprovalGate(ApprovalMode.REQUIRE)
+        self.store = SessionStore(workdir)
+        meta = self.store.load_meta()
+        self.auto_approve = bool(meta.get("auto_approve", False))
+        self.plan_mode = bool(meta.get("plan_mode", False))
+        self.pending = PendingChanges(
+            on_change=lambda: self.store.save_pending(self.pending.dump())
+        )
+        self.pending.restore(self.store.load_pending())
+        self.approval = ApprovalGate(
+            ApprovalMode.AUTO if self.auto_approve else ApprovalMode.REQUIRE
+        )
         self.session = Session(workdir, build_main_prompt())
+        loaded = self.store.load_messages()
+        if loaded:
+            if loaded[0].get("role") == "system":
+                loaded[0] = {"role": "system", "content": build_main_prompt()}
+            self.session.messages = loaded
         self.registry = build_tool_registry(workdir, self.pending)
         self.client = DeepSeekClient(config.api_key, config.base_url, config.model)
-        self.auto_approve = False
-        self.plan_mode = False
         self.tasks: dict[str, TaskState] = {}
+
+    def _save_state(self) -> None:
+        self.store.save_messages(self.session.messages)
+        self.store.save_pending(self.pending.dump())
+
+    def _save_settings(self) -> None:
+        self.store.save_meta(
+            {"auto_approve": self.auto_approve, "plan_mode": self.plan_mode}
+        )
 
     def _sync_approval(self) -> None:
         self.approval.set_mode(
@@ -104,6 +126,7 @@ class AgentApp:
             self.pending,
             stop_event=task.stop_event,
             emit=task.bus.emit,
+            on_state_change=self._save_state,
         )
 
 
@@ -179,6 +202,7 @@ def create_app(workdir: str, config: Config) -> FastAPI:
             app_state._sync_approval()
         if req.plan_mode is not None:
             app_state.plan_mode = req.plan_mode
+        app_state._save_settings()
         return {"auto_approve": app_state.auto_approve, "plan_mode": app_state.plan_mode}
 
     @app.get("/api/list")

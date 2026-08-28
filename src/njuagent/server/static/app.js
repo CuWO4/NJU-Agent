@@ -12,6 +12,7 @@ const state = {
   thinkingText: "",
   toolCards: {},
   uiManifest: {},
+  searchOpts: { case: false, word: false, regex: false },
 };
 
 function escapeHtml(s) {
@@ -469,6 +470,144 @@ async function renderTree() {
   }
 }
 
+/* ---------- sidebar tabs ---------- */
+
+function switchTab(tab) {
+  document.querySelectorAll(".sidebar-tabs .tab").forEach((b) => {
+    b.classList.toggle("active", b.dataset.tab === tab);
+  });
+  $("filesView").hidden = tab !== "files";
+  $("gitView").hidden = tab !== "git";
+  $("searchView").hidden = tab !== "search";
+}
+
+/* ---------- git view ---------- */
+
+async function renderGit() {
+  const content = $("gitContent");
+  let status;
+  try {
+    status = await api("/api/git/status");
+  } catch (err) {
+    content.textContent = "Git error: " + err.message;
+    return;
+  }
+  content.innerHTML = "";
+  if (!status.initialized) {
+    const p = document.createElement("p");
+    p.className = "git-empty";
+    p.textContent = "This folder is not a git repository.";
+    const init = document.createElement("button");
+    init.className = "git-init";
+    init.textContent = "Initialize Repository";
+    init.onclick = async () => {
+      try {
+        await postJson("/api/git/init", {});
+        renderGit();
+      } catch (err) {
+        content.textContent = "Git error: " + err.message;
+      }
+    };
+    content.append(p, init);
+    return;
+  }
+  const msg = document.createElement("input");
+  msg.className = "git-message";
+  msg.placeholder = "Commit message";
+  const commit = document.createElement("button");
+  commit.className = "git-commit";
+  commit.textContent = "Commit";
+  commit.onclick = async () => {
+    try {
+      await postJson("/api/git/commit", { message: msg.value });
+      msg.value = "";
+      renderGit();
+    } catch (err) {
+      content.textContent = "Git error: " + err.message;
+    }
+  };
+  content.append(msg, commit);
+  const head = document.createElement("div");
+  head.className = "git-head";
+  head.textContent = status.branch ? `branch: ${status.branch}` : "branch: (none)";
+  content.append(head);
+  const list = document.createElement("div");
+  list.className = "git-changes";
+  if (status.changes.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "git-empty";
+    empty.textContent = "No changes";
+    list.append(empty);
+  } else {
+    for (const c of status.changes) {
+      const row = document.createElement("div");
+      row.className = "git-change";
+      const st = document.createElement("span");
+      st.className = "git-status";
+      st.textContent = c.status;
+      const path = document.createElement("span");
+      path.className = "git-path";
+      path.textContent = c.path;
+      path.title = c.path;
+      row.append(st, path);
+      list.append(row);
+    }
+  }
+  content.append(list);
+}
+
+/* ---------- search view ---------- */
+
+async function doSearch() {
+  const query = $("searchQuery").value.trim();
+  const resultsEl = $("searchResults");
+  resultsEl.innerHTML = "";
+  if (!query) return;
+  const opts = state.searchOpts;
+  let data;
+  try {
+    data = await api(
+      `/api/search?query=${encodeURIComponent(query)}` +
+      `&case_sensitive=${opts.case}` +
+      `&whole_word=${opts.word}` +
+      `&regex=${opts.regex}`
+    );
+  } catch (err) {
+    resultsEl.textContent = "Search error: " + err.message;
+    return;
+  }
+  if (data.results.length === 0) {
+    resultsEl.textContent = "No results";
+    return;
+  }
+  for (const f of data.results) {
+    const file = document.createElement("div");
+    file.className = "search-file";
+    const fileHead = document.createElement("div");
+    fileHead.className = "search-file-head";
+    fileHead.textContent = f.path;
+    fileHead.onclick = () => openFile(f.path);
+    file.append(fileHead);
+    const details = document.createElement("div");
+    details.className = "search-matches";
+    for (const m of f.matches) {
+      const mrow = document.createElement("div");
+      mrow.className = "search-match";
+      const lineNo = document.createElement("span");
+      lineNo.className = "search-line";
+      lineNo.textContent = m.line;
+      const text = document.createElement("span");
+      text.className = "search-text";
+      text.textContent = m.text;
+      mrow.append(lineNo, text);
+      mrow.onclick = () => openFile(f.path);
+      details.append(mrow);
+    }
+    file.append(details);
+    resultsEl.append(file);
+  }
+}
+
 /* ---------- pending panel ---------- */
 
 async function renderPending() {
@@ -562,6 +701,20 @@ async function init() {
       $("saveBtn").click();
     }
   });
+  document.querySelectorAll(".sidebar-tabs .tab").forEach((b) => {
+    b.addEventListener("click", () => switchTab(b.dataset.tab));
+  });
+  $("searchBtn").addEventListener("click", doSearch);
+  $("searchQuery").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") doSearch();
+  });
+  document.querySelectorAll("#searchOpts .opt").forEach((b) => {
+    b.addEventListener("click", () => {
+      const key = b.dataset.opt;
+      state.searchOpts[key] = !state.searchOpts[key];
+      b.classList.toggle("active", state.searchOpts[key]);
+    });
+  });
 
   try {
     const s = await api("/api/state");
@@ -576,6 +729,7 @@ async function init() {
     renderHistory(s.messages);
     await renderPending();
     await renderTree();
+    renderGit();
   } catch (err) {
     $("messages").textContent = "Failed to load state: " + err.message;
   }

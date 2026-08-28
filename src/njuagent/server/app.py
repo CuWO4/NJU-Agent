@@ -24,6 +24,8 @@ from ..store.snapshots import PendingChanges
 from ..tools import build_tool_registry
 from ..tools.fs import list_entries, resolve
 from .events import EventBus
+from .git import GitError, git_commit, git_init, git_status
+from .search import search_files
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -62,6 +64,10 @@ class PendingAction(BaseModel):
 class EditMessageRequest(BaseModel):
     index: int
     content: str
+
+
+class CommitRequest(BaseModel):
+    message: str
 
 
 class TaskState:
@@ -257,6 +263,44 @@ def create_app(workdir: str, config: Config) -> FastAPI:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(req.content, encoding="utf-8")
         return {"ok": True}
+
+    @app.get("/api/git/status")
+    async def git_status_api() -> dict:
+        try:
+            return await git_status(app_state.workdir)
+        except GitError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    @app.post("/api/git/init")
+    async def git_init_api() -> dict:
+        try:
+            return await git_init(app_state.workdir)
+        except GitError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    @app.post("/api/git/commit")
+    async def git_commit_api(req: CommitRequest) -> dict:
+        try:
+            return await git_commit(app_state.workdir, req.message)
+        except GitError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    @app.get("/api/search")
+    async def search_api(
+        query: str,
+        case_sensitive: bool = False,
+        whole_word: bool = False,
+        regex: bool = False,
+    ) -> dict:
+        return {
+            "results": search_files(
+                app_state.workdir,
+                query,
+                case_sensitive=case_sensitive,
+                whole_word=whole_word,
+                regex=regex,
+            )
+        }
 
     @app.get("/api/pending")
     async def pending() -> dict:

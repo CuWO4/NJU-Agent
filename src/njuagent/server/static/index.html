@@ -22,8 +22,32 @@
 </header>
 <main>
   <aside class="pane tree-pane">
-    <div class="pane-title">Files</div>
-    <div id="tree" class="tree"></div>
+    <div class="sidebar-tabs">
+      <button class="tab active" data-tab="files" title="Explorer">Files</button>
+      <button class="tab" data-tab="git" title="Source control">Git</button>
+      <button class="tab" data-tab="search" title="Search">Search</button>
+    </div>
+    <div id="filesView" class="sidebar-view">
+      <div class="pane-title">Explorer</div>
+      <div id="tree" class="tree"></div>
+    </div>
+    <div id="gitView" class="sidebar-view" hidden>
+      <div class="pane-title">Source Control</div>
+      <div id="gitContent" class="sidebar-content"></div>
+    </div>
+    <div id="searchView" class="sidebar-view" hidden>
+      <div class="pane-title">Search</div>
+      <div class="sidebar-content">
+        <input id="searchQuery" class="search-input" placeholder="Search in workspace">
+        <div class="search-opts" id="searchOpts">
+          <button class="opt" data-opt="case" title="Case sensitive">Aa</button>
+          <button class="opt" data-opt="word" title="Whole word">Word</button>
+          <button class="opt" data-opt="regex" title="Regex">.*</button>
+        </div>
+        <button id="searchBtn" class="search-go">Search</button>
+        <div id="searchResults" class="search-results"></div>
+      </div>
+    </div>
   </aside>
   <section class="pane editor-pane">
     <div class="pane-title" id="editorTitle">Select a file</div>

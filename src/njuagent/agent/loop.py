@@ -234,4 +234,6 @@ class AgentLoop:
             {"type": "tool.result", "id": call.id, "name": call.name, "output": result}
         )
         self.emit({"type": "pending.changed", "paths": self.pending.list_pending()})
+        if call.name == "run_command":
+            self.emit({"type": "shell.changed"})
         return result

@@ -15,7 +15,7 @@ import webbrowser
 
 import uvicorn
 
-from .config import ConfigError, load_config
+from .config import load_config
 from .server.app import create_app
 
 logger = logging.getLogger(__name__)
@@ -44,11 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     args = build_parser().parse_args(argv)
-    try:
-        config = load_config()
-    except ConfigError as exc:
-        logger.error("%s", exc)
-        raise SystemExit(1) from exc
+    config = load_config()
 
     workdir = os.path.abspath(args.directory)
     port = args.port or find_free_port()

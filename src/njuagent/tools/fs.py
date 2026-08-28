@@ -22,8 +22,9 @@ def resolve(workdir: str, path: str) -> Path:
 
 
 def list_entries(path: Path) -> list[tuple[str, bool]]:
-    """Sorted (name, is_dir) entries of a directory."""
-    return [(name, (path / name).is_dir()) for name in sorted(os.listdir(path))]
+    """Sorted (name, is_dir) entries: directories first, then names."""
+    items = [(name, (path / name).is_dir()) for name in os.listdir(path)]
+    return sorted(items, key=lambda item: (item[1] is False, item[0].lower()))
 
 
 def list_dir_schema() -> dict:

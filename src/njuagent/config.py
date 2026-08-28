@@ -1,38 +1,16 @@
-"""Configuration loaded from environment variables and an optional .env file.
+"""Configuration loaded from environment variables only.
 
-Credentials are provided via environment variables or an untracked .env file;
-they must never be committed.
+The API key is injected by the Electron shell as NJUAGENT_API_KEY when it
+spawns the backend; in development set DEEPSEEK_API_KEY / NJUAGENT_API_KEY.
 """
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
-from pathlib import Path
 
-
-class ConfigError(RuntimeError):
-    """Raised when required configuration is missing."""
-
-
-def _load_dotenv(path: str | Path | None = None) -> None:
-    """Load KEY=VALUE pairs from a .env file into os.environ (no override).
-
-    Minimal parser: one KEY=VALUE per line; blank lines and lines starting
-    with '#' are ignored.
-    """
-    env_path = Path(path) if path is not None else Path.cwd() / ".env"
-    if not env_path.is_file():
-        return
-    for raw in env_path.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        key = key.strip()
-        value = value.strip().strip('"').strip("'")
-        if key and key not in os.environ:
-            os.environ[key] = value
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -54,13 +32,15 @@ def _env_int(name: str, default: int) -> int:
 
 
 def load_config() -> Config:
-    """Load config from the environment, falling back to a .env file in the CWD."""
-    _load_dotenv()
-    key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("NJUAGENT_API_KEY")
+    """Load config from environment variables only."""
+    key = (
+        os.environ.get("DEEPSEEK_API_KEY")
+        or os.environ.get("NJUAGENT_API_KEY")
+        or ""
+    )
     if not key:
-        raise ConfigError(
-            "DEEPSEEK_API_KEY is not set. Set it in the environment or in a "
-            ".env file next to the working directory."
+        logger.warning(
+            "no API key configured; set DEEPSEEK_API_KEY or NJUAGENT_API_KEY"
         )
     return Config(
         api_key=key,

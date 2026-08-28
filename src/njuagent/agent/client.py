@@ -63,6 +63,11 @@ class DeepSeekClient:
         if max_tokens:
             payload["max_tokens"] = max_tokens
         headers = {"Authorization": f"Bearer {self.api_key}"}
+        if not self.api_key:
+            raise ApiError(
+                "API key is not configured. Set it in the app Settings "
+                "(or via DEEPSEEK_API_KEY)."
+            )
 
         async with httpx.AsyncClient(timeout=self.timeout) as http:
             for attempt in range(self.max_retries + 1):

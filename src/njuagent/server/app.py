@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import difflib
+import os
+import shutil
 import uuid
 from pathlib import Path
 
@@ -23,6 +25,7 @@ from ..store.persistence import SessionStore
 from ..store.snapshots import PendingChanges
 from ..tools import build_tool_registry
 from ..tools.fs import list_entries, resolve
+from ..tools.shell import ShellSession
 from .events import EventBus
 from .git import GitError, git_commit, git_init, git_status
 from .search import search_files
@@ -70,6 +73,25 @@ class CommitRequest(BaseModel):
     message: str
 
 
+class ShellRunRequest(BaseModel):
+    command: str
+
+
+class FileCreateRequest(BaseModel):
+    path: str
+    is_dir: bool = False
+
+
+class FileRenameRequest(BaseModel):
+    path: str
+    new_name: str
+
+
+class FileMoveRequest(BaseModel):
+    path: str
+    dest_dir: str
+
+
 class TaskState:
     def __init__(self) -> None:
         self.stop_event = asyncio.Event()
@@ -86,6 +108,19 @@ def _diff(previous: str, current: str) -> str:
             lineterm="",
         )
     )
+
+
+def _snapshot_tree(path: Path) -> dict:
+    """Snapshot a file/dir (path + contents) for undo."""
+    files: dict[str, bytes] = {}
+    if path.is_dir():
+        for root, _dirs, fnames in os.walk(path):
+            for name in fnames:
+                full = Path(root) / name
+                files[str(full)] = full.read_bytes()
+    else:
+        files[str(path)] = path.read_bytes()
+    return {"path": str(path), "is_dir": path.is_dir(), "files": files}
 
 
 class AgentApp:
@@ -112,8 +147,10 @@ class AgentApp:
                 loaded[0] = {"role": "system", "content": build_main_prompt()}
             self.session.messages = loaded
         self.client = DeepSeekClient(config.api_key, config.base_url, config.model)
+        self.shell = ShellSession(workdir)
+        self.undo_stack: list[dict] = []
         self.registry = build_tool_registry(
-            workdir, self.pending, client=self.client, approval=self.approval
+            workdir, self.pending, client=self.client, approval=self.approval, shell=self.shell
         )
         self.tasks: dict[str, TaskState] = {}
 
@@ -252,6 +289,67 @@ def create_app(workdir: str, config: Config) -> FastAPI:
             "pending": app_state.pending.is_pending(str(p)),
         }
 
+    @app.post("/api/file/create")
+    async def create_file(req: FileCreateRequest) -> dict:
+        p = resolve(app_state.workdir, req.path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        if req.is_dir:
+            p.mkdir(exist_ok=True)
+        else:
+            if p.exists():
+                raise HTTPException(status_code=409, detail="already exists")
+            p.write_text("", encoding="utf-8")
+        return {"ok": True}
+
+    @app.post("/api/file/rename")
+    async def rename_file(req: FileRenameRequest) -> dict:
+        src = resolve(app_state.workdir, req.path)
+        if app_state.pending.is_pending(str(src)):
+            raise HTTPException(status_code=409, detail="file has pending changes")
+        dst = src.parent / req.new_name
+        if not src.exists():
+            raise HTTPException(status_code=404, detail="not found")
+        src.rename(dst)
+        return {"ok": True}
+
+    @app.post("/api/file/move")
+    async def move_file(req: FileMoveRequest) -> dict:
+        src = resolve(app_state.workdir, req.path)
+        if app_state.pending.is_pending(str(src)):
+            raise HTTPException(status_code=409, detail="file has pending changes")
+        dest = resolve(app_state.workdir, req.dest_dir)
+        if not src.exists():
+            raise HTTPException(status_code=404, detail="not found")
+        dest.mkdir(parents=True, exist_ok=True)
+        src.rename(dest / src.name)
+        return {"ok": True}
+
+    @app.delete("/api/file")
+    async def delete_file(path: str) -> dict:
+        p = resolve(app_state.workdir, path)
+        if not p.exists():
+            raise HTTPException(status_code=404, detail="not found")
+        if app_state.pending.is_pending(str(p)):
+            raise HTTPException(status_code=409, detail="file has pending changes")
+        app_state.undo_stack.append(_snapshot_tree(p))
+        if p.is_dir():
+            shutil.rmtree(p)
+        else:
+            p.unlink()
+        return {"ok": True}
+
+    @app.post("/api/file/undo")
+    async def undo_file() -> dict:
+        if not app_state.undo_stack:
+            raise HTTPException(status_code=400, detail="nothing to undo")
+        snap = app_state.undo_stack.pop()
+        for full, content in snap["files"].items():
+            Path(full).parent.mkdir(parents=True, exist_ok=True)
+            Path(full).write_bytes(content)
+        if snap["is_dir"]:
+            Path(snap["path"]).mkdir(parents=True, exist_ok=True)
+        return {"ok": True}
+
     @app.post("/api/file")
     async def save_file(req: FileRequest) -> dict:
         p = resolve(app_state.workdir, req.path)
@@ -302,13 +400,31 @@ def create_app(workdir: str, config: Config) -> FastAPI:
             )
         }
 
+    @app.get("/api/shell/history")
+    async def shell_history() -> dict:
+        return {"commands": app_state.shell.history}
+
+    @app.post("/api/shell/run")
+    async def shell_run(req: ShellRunRequest) -> dict:
+        return await app_state.shell.run(req.command, source="user")
+
+    @app.post("/api/shell/stop")
+    async def shell_stop() -> dict:
+        await app_state.shell.stop()
+        return {"ok": True}
+
     @app.get("/api/pending")
     async def pending() -> dict:
         files = []
+        workdir = Path(app_state.workdir)
         for path in app_state.pending.list_pending():
             previous = app_state.pending.snapshot_of(path) or ""
             current = Path(path).read_text(encoding="utf-8", errors="replace")
-            files.append({"path": path, "diff": _diff(previous, current)})
+            try:
+                rel = str(Path(path).relative_to(workdir))
+            except ValueError:
+                rel = path
+            files.append({"path": rel, "diff": _diff(previous, current)})
         return {"files": files}
 
     @app.post("/api/messages/edit")
@@ -338,7 +454,7 @@ def create_app(workdir: str, config: Config) -> FastAPI:
         if req.all:
             app_state.pending.accept_all()
         elif req.path:
-            app_state.pending.accept(req.path)
+            app_state.pending.accept(str(resolve(app_state.workdir, req.path)))
         else:
             raise HTTPException(status_code=400, detail="path or all required")
         return {"ok": True}
@@ -348,7 +464,7 @@ def create_app(workdir: str, config: Config) -> FastAPI:
         if req.all:
             app_state.pending.rollback_all()
         elif req.path:
-            app_state.pending.rollback(req.path)
+            app_state.pending.rollback(str(resolve(app_state.workdir, req.path)))
         else:
             raise HTTPException(status_code=400, detail="path or all required")
         return {"ok": True}

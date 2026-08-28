@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>njuagent</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: Consolas, "Cascadia Mono", ui-monospace, monospace;
+    background: #1e1e1e;
+    color: #d4d4d4;
+  }
+  .card { text-align: center; max-width: 420px; }
+  h1 { font-weight: 600; letter-spacing: .02em; color: #e6e6e6; }
+  p { color: #9d9d9d; font-size: 14px; line-height: 1.6; }
+  button {
+    margin-top: 1rem;
+    padding: .55rem 1.6rem;
+    font: inherit;
+    font-size: 14px;
+    cursor: pointer;
+    border: none;
+    border-radius: 3px;
+    background: #0e639c;
+    color: #fff;
+  }
+  button:hover { background: #1177bb; }
+  .hint { margin-top: 1.5rem; font-size: 12px; color: #6e7681; }
+  .settings {
+    margin-top: 2rem;
+    padding-top: 1rem;
+    border-top: 1px solid #30363d;
+    text-align: left;
+  }
+  .settings h2 { font-size: 13px; color: #e6e6e6; margin: 0 0 .5rem; }
+  .settings .row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+  .settings .row p { margin: 0; font-size: 12px; }
+  .settings button {
+    margin: 0;
+    padding: .3rem .9rem;
+    font-size: 12px;
+    background: #3c3c3c;
+    color: #d4d4d4;
+    flex: none;
+  }
+  .settings button:hover { background: #454545; }
+  .settings button.primary { background: #0e639c; color: #fff; }
+  .settings button.primary:hover { background: #1177bb; }
+  .key-input {
+    flex: 1;
+    min-width: 0;
+    padding: .3rem .5rem;
+    font: inherit;
+    font-size: 12px;
+    border: 1px solid #3c3c3c;
+    border-radius: 2px;
+    background: #3c3c3c;
+    color: #d4d4d4;
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>njuagent</h1>
+    <p>No workspace is open.<br>Open a folder to start the coding agent in it.</p>
+    <button id="openBtn">Open Workspace...</button>
+    <div class="hint">Or use File &gt; Open Workspace (Ctrl+O)</div>
+    <div class="settings">
+      <h2>Settings</h2>
+      <div class="row">
+        <p id="keyStatus">Checking API key...</p>
+        <input type="password" id="keyInput" class="key-input" placeholder="DeepSeek API key" autocomplete="off">
+        <button id="keyBtn" class="primary">Save Key</button>
+      </div>
+      <div class="row" style="margin-top:.5rem">
+        <p id="ctxStatus">Checking context menu status...</p>
+        <button id="ctxBtn" class="primary">Add "Open njuagent here"</button>
+      </div>
+    </div>
+  </div>
+  <script>
+    const ctxBtn = document.getElementById("ctxBtn");
+    const ctxStatus = document.getElementById("ctxStatus");
+    const keyBtn = document.getElementById("keyBtn");
+    const keyInput = document.getElementById("keyInput");
+    const keyStatus = document.getElementById("keyStatus");
+
+    async function refreshCtx() {
+      const installed = await window.njuagentAPI.contextMenuStatus();
+      if (installed) {
+        ctxStatus.textContent = "Context menu registered.";
+        ctxBtn.textContent = "Remove from context menu";
+        ctxBtn.classList.remove("primary");
+      } else {
+        ctxStatus.textContent = "Context menu not registered.";
+        ctxBtn.textContent = "Add \"Open njuagent here\"";
+        ctxBtn.classList.add("primary");
+      }
+    }
+
+    async function refreshKey() {
+      const st = await window.njuagentAPI.keyStatus();
+      keyStatus.textContent = st.set
+        ? "API key is set."
+        : "No API key set.";
+    }
+
+    ctxBtn.addEventListener("click", async () => {
+      const installed = await window.njuagentAPI.contextMenuStatus();
+      const res = installed
+        ? await window.njuagentAPI.contextMenuUninstall()
+        : await window.njuagentAPI.contextMenuInstall();
+      if (!res.ok) ctxStatus.textContent = "Error: " + (res.error || "unknown");
+      refreshCtx();
+    });
+
+    keyBtn.addEventListener("click", async () => {
+      const key = keyInput.value.trim();
+      if (!key) { keyStatus.textContent = "Please enter an API key."; return; }
+      await window.njuagentAPI.setKey(key);
+      keyInput.value = "";
+      refreshKey();
+    });
+
+    document.getElementById("openBtn").addEventListener("click", async () => {
+      const opened = await window.njuagentAPI.openWorkspace();
+      if (!opened) {
+        document.getElementById("openBtn").textContent = "Open Workspace...";
+      }
+    });
+
+    refreshCtx();
+    refreshKey();
+  </script>
+</body>
+</html>

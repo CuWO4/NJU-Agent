@@ -13,3 +13,9 @@ __pycache__/
 build/
 dist/
 .venv/
+
+# node / electron
+node_modules/
+electron/dist/
+electron/out/
+electron/release/

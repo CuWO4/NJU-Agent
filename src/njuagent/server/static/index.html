@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>njuagent</title>
+<link rel="stylesheet" href="/static/vendor/highlight-vs2015.min.css">
+<link rel="stylesheet" href="/static/vendor/codemirror/codemirror.css">
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -17,6 +19,7 @@
     <label title="Skip command approval for this session">
       <input type="checkbox" id="autoApprove"> Auto-approve
     </label>
+    <button id="settingsBtn" class="settings-btn" title="Settings">Settings</button>
     <span class="cost" id="cost"></span>
   </div>
 </header>
@@ -49,6 +52,7 @@
       </div>
     </div>
   </aside>
+  <div class="resizer" data-side="left"></div>
   <section class="pane editor-pane">
     <div class="pane-title" id="editorTitle">Select a file</div>
     <textarea id="editor" spellcheck="false" disabled
@@ -58,13 +62,14 @@
       <button id="saveBtn" disabled>Save</button>
     </div>
   </section>
+  <div class="resizer" data-side="right"></div>
   <section class="pane chat-pane">
     <div class="pane-title">Conversation</div>
     <div id="messages" class="messages"></div>
     <div class="pending-box" id="pendingBox" hidden>
       <div class="pending-title">Modified files
         <span class="pending-actions">
-          <button id="acceptAll">Accept all</button>
+          <button id="acceptAll">Keep all</button>
           <button id="rollbackAll">Rollback all</button>
         </span>
       </div>
@@ -74,8 +79,45 @@
       <textarea id="input" placeholder="Describe a programming task..." rows="2"></textarea>
       <button id="sendBtn" type="submit">Send</button>
     </form>
+    <div id="shellPanel" class="shell-panel" hidden>
+      <div class="shell-head">
+        <span>Shared Shell (Ctrl+`)</span>
+        <span class="shell-actions">
+          <button id="shellStop">Stop</button>
+          <button id="shellClose">Close</button>
+        </span>
+      </div>
+      <div id="shellOutput" class="shell-output"></div>
+      <form id="shellForm" class="shell-input-row">
+        <input id="shellInput" placeholder="Run a command (shared with the agent)" autocomplete="off" spellcheck="false">
+        <button type="submit">Run</button>
+      </form>
+    </div>
   </section>
 </main>
+
+<div id="settingsModal" class="modal" hidden>
+  <div class="modal-box">
+    <h3>Settings</h3>
+    <label class="modal-label" for="apiKeyInput">API Key</label>
+    <input type="password" id="apiKeyInput" placeholder="DeepSeek API key" autocomplete="off">
+    <div id="apiKeyStatus" class="modal-status"></div>
+    <div class="modal-actions">
+      <button id="apiKeySave" class="primary">Save Key</button>
+      <button id="settingsClose">Close</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/vendor/highlight.min.js"></script>
+<script src="/static/vendor/codemirror/codemirror.js"></script>
+<script src="/static/vendor/codemirror/mode-python.js"></script>
+<script src="/static/vendor/codemirror/mode-javascript.js"></script>
+<script src="/static/vendor/codemirror/mode-xml.js"></script>
+<script src="/static/vendor/codemirror/mode-css.js"></script>
+<script src="/static/vendor/codemirror/mode-htmlmixed.js"></script>
+<script src="/static/vendor/codemirror/mode-markdown.js"></script>
+<script src="/static/vendor/codemirror/mode-clike.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

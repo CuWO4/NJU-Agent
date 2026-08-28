@@ -13,6 +13,8 @@ const state = {
   toolCards: {},
   uiManifest: {},
   searchOpts: { case: false, word: false, regex: false },
+  selectedPath: null,
+  selectedIsDir: false,
 };
 
 function escapeHtml(s) {
@@ -33,8 +35,9 @@ function inlineMd(s) {
 function renderMarkdown(src) {
   const escaped = escapeHtml(src);
   const blocks = [];
-  let s = escaped.replace(/```([\s\S]*?)```/g, (_m, code) => {
-    blocks.push(`<pre class="md-code">${code}</pre>`);
+  let s = escaped.replace(/```([\w+-]*)\n?([\s\S]*?)```/g, (_m, lang, code) => {
+    const cls = lang ? ` language-${lang}` : "";
+    blocks.push(`<pre class="md-code"><code class="${cls}">${code}</code></pre>`);
     return `\u0000${blocks.length - 1}\u0000`;
   });
   const lines = s.split("\n");
@@ -78,6 +81,27 @@ function renderMarkdown(src) {
   return html;
 }
 
+/* syntax highlight code blocks inside a rendered element */
+function highlightBlocks(root) {
+  if (typeof hljs === "undefined" || !root) return;
+  root.querySelectorAll("pre.md-code code").forEach((el) => hljs.highlightElement(el));
+}
+
+/* pick a CodeMirror mode from a file path */
+function modeForPath(path) {
+  const ext = path.split(".").pop().toLowerCase();
+  const map = {
+    py: "python", js: "javascript", mjs: "javascript", ts: "javascript",
+    html: "htmlmixed", htm: "htmlmixed", vue: "htmlmixed",
+    css: "css", scss: "css", less: "css",
+    json: "javascript", md: "markdown", markdown: "markdown",
+    xml: "xml", svg: "xml",
+    java: "text/x-java", c: "text/x-csrc", h: "text/x-csrc",
+    cpp: "text/x-c++src", cc: "text/x-c++src", cxx: "text/x-c++src",
+  };
+  return map[ext] || "text/plain";
+}
+
 async function api(path, opts) {
   const resp = await fetch(path, opts);
   if (!resp.ok) {
@@ -113,6 +137,7 @@ function addUserMessage(text, index) {
   const div = document.createElement("div");
   div.className = "user";
   div.innerHTML = renderMarkdown(stripPlanPrefix(text));
+  highlightBlocks(div);
   if (index !== undefined) {
     div.dataset.index = index;
     div.dataset.raw = text;
@@ -182,12 +207,14 @@ function appendThinking(text) {
 function endThinking(content) {
   if (state.thinkingEl) {
     state.thinkingEl.classList.add("final");
+    highlightBlocks(state.thinkingEl);
     state.thinkingEl = null;
     state.thinkingText = "";
   } else if (content) {
     const div = document.createElement("div");
     div.className = "assistant final";
     div.innerHTML = renderMarkdown(content);
+    highlightBlocks(div);
     $("messages").appendChild(div);
     div.scrollIntoView({ block: "end" });
   }
@@ -205,6 +232,7 @@ function collapseThinking() {
     const body = document.createElement("div");
     body.className = "assistant";
     body.innerHTML = html;
+    highlightBlocks(body);
     det.appendChild(body);
     state.thinkingEl.replaceWith(det);
   } else {
@@ -346,7 +374,12 @@ function handleEvent(ev) {
     case "approval.request": showApproval(ev); break;
     case "approval.resolved": resolveApproval(ev); break;
     case "tool.result": showToolResult(ev); break;
-    case "pending.changed": renderPending(); break;
+    case "shell.changed": renderShell(); break;
+    case "pending.changed":
+      renderPending();
+      renderTree();
+      refreshCurrentFile();
+      break;
     case "cost": updateCost(ev.usage); break;
     case "error": showError(ev.message); break;
     case "ended": endTask(); break;
@@ -395,14 +428,33 @@ function joinPath(base, name) {
   return base === "." || base === "" ? name : `${base}/${name}`;
 }
 
+/* ---------- editor ---------- */
+
+let editorCM = null;
+
+function initEditor() {
+  const ta = $("editor");
+  editorCM = CodeMirror.fromTextArea(ta, {
+    lineNumbers: true,
+    theme: "vs-dark",
+    mode: "text/plain",
+    readOnly: true,
+    extraKeys: {
+      "Ctrl-S": () => $("saveBtn").click(),
+      "Cmd-S": () => $("saveBtn").click(),
+    },
+  });
+}
+
 async function openFile(path) {
   try {
     const f = await api(`/api/file?path=${encodeURIComponent(path)}`);
     state.currentPath = path;
     state.currentFilePending = f.pending;
-    const editor = $("editor");
-    editor.value = f.content;
-    editor.disabled = false;
+    editorCM.setValue(f.content);
+    editorCM.setOption("mode", modeForPath(path));
+    editorCM.setOption("readOnly", f.pending);
+    editorCM.refresh();
     $("editorTitle").textContent = path;
     $("saveBtn").disabled = f.pending;
     $("fileStatus").textContent = f.pending
@@ -420,6 +472,27 @@ function markTreeSelection(path) {
   if (node) node.classList.add("selected");
 }
 
+const FILE_ICONS = {
+  py: "file_type_python", js: "file_type_js", mjs: "file_type_js", ts: "file_type_typescript",
+  html: "file_type_html", htm: "file_type_html", css: "file_type_css", scss: "file_type_css",
+  json: "file_type_json", md: "file_type_markdown", markdown: "file_type_markdown",
+  yaml: "file_type_yaml", yml: "file_type_yaml", xml: "file_type_xml", toml: "file_type_toml",
+  c: "file_type_c", h: "file_type_c", cpp: "file_type_cpp", cc: "file_type_cpp",
+  java: "file_type_java", rs: "file_type_rust", go: "file_type_go",
+  txt: "file_type_text", text: "file_type_text", log: "file_type_text",
+  png: "file_type_image", jpg: "file_type_image", jpeg: "file_type_image",
+  gif: "file_type_image", svg: "file_type_image", webp: "file_type_image", ico: "file_type_image",
+  zip: "file_type_zip", gz: "file_type_zip", tar: "file_type_zip", "7z": "file_type_zip", rar: "file_type_zip",
+  pdf: "file_type_pdf",
+  ini: "file_type_config", cfg: "file_type_config", conf: "file_type_config",
+  license: "file_type_license", editorconfig: "file_type_editorconfig",
+};
+
+function iconForPath(name) {
+  const ext = name.split(".").pop().toLowerCase();
+  return FILE_ICONS[ext] || "default_file";
+}
+
 function makeNode(relPath, entries) {
   const ul = document.createElement("ul");
   for (const e of entries) {
@@ -427,14 +500,40 @@ function makeNode(relPath, entries) {
     const label = document.createElement("span");
     label.className = "node " + e.type;
     label.dataset.path = joinPath(relPath, e.name);
-    label.textContent = e.name;
+    const icon = document.createElement("img");
+    icon.className = "file-icon";
+    icon.alt = "";
     const full = joinPath(relPath, e.name);
+    const selectNode = () => {
+      state.selectedPath = full;
+      state.selectedIsDir = e.type === "dir";
+      markTreeSelection(full);
+    };
     if (e.type === "dir") {
+      icon.src = "/static/vendor/icons/default_folder.svg";
+      label.appendChild(icon);
+      label.appendChild(document.createTextNode(e.name));
+      label.draggable = true;
+      label.addEventListener("dragstart", (ev) => {
+        ev.dataTransfer.setData("text/plain", full);
+      });
+      label.addEventListener("dragover", (ev) => ev.preventDefault());
+      label.addEventListener("drop", async (ev) => {
+        ev.preventDefault();
+        const src = ev.dataTransfer.getData("text/plain");
+        if (src && src !== full && !src.startsWith(full + "/")) {
+          await postJson("/api/file/move", { path: src, dest_dir: full }).catch(console.error);
+          await renderTree();
+        }
+      });
       const childUl = document.createElement("ul");
       childUl.hidden = true;
       label.onclick = async () => {
+        selectNode();
         if (childUl.hidden) {
           childUl.hidden = false;
+          label.classList.add("expanded");
+          icon.src = "/static/vendor/icons/default_folder_opened.svg";
           if (!childUl.dataset.loaded) {
             try {
               const sub = await api(`/api/list?path=${encodeURIComponent(full)}`);
@@ -446,12 +545,24 @@ function makeNode(relPath, entries) {
           }
         } else {
           childUl.hidden = true;
+          label.classList.remove("expanded");
+          icon.src = "/static/vendor/icons/default_folder.svg";
         }
       };
       li.appendChild(label);
       li.appendChild(childUl);
     } else {
-      label.onclick = () => openFile(full);
+      icon.src = "/static/vendor/icons/" + iconForPath(e.name) + ".svg";
+      label.appendChild(icon);
+      label.appendChild(document.createTextNode(e.name));
+      label.draggable = true;
+      label.addEventListener("dragstart", (ev) => {
+        ev.dataTransfer.setData("text/plain", full);
+      });
+      label.onclick = () => {
+        selectNode();
+        openFile(full);
+      };
       li.appendChild(label);
     }
     ul.appendChild(li);
@@ -468,6 +579,194 @@ async function renderTree() {
   } catch (err) {
     tree.textContent = "Error loading tree: " + err.message;
   }
+}
+
+function dirOfSelected() {
+  if (!state.selectedPath) return "";
+  if (state.selectedIsDir) return state.selectedPath;
+  const parts = state.selectedPath.split("/");
+  parts.pop();
+  return parts.join("/");
+}
+
+function showInlineInput(defaultValue, placeholder, onSubmit) {
+  let input = document.querySelector("#treeInlineInput");
+  if (!input) {
+    input = document.createElement("input");
+    input.id = "treeInlineInput";
+    input.className = "tree-inline-input";
+    document.querySelector("#tree").appendChild(input);
+  }
+  input.value = defaultValue;
+  input.placeholder = placeholder || "";
+  input.style.display = "block";
+  input.focus();
+  input.select();
+  const finish = (ok) => {
+    const val = input.value.trim();
+    input.style.display = "none";
+    input.removeEventListener("keydown", handler);
+    if (ok && val) onSubmit(val);
+  };
+  const handler = (e) => {
+    if (e.key === "Enter") finish(true);
+    else if (e.key === "Escape") finish(false);
+  };
+  input.addEventListener("keydown", handler);
+}
+
+function initTreeOps() {
+  $("tree").addEventListener("dblclick", async (e) => {
+    if (e.target.closest(".node")) return;
+    showInlineInput("", "name (end with / for a folder)", async (name) => {
+      const isDir = name.endsWith("/");
+      const clean = isDir ? name.slice(0, -1) : name;
+      if (!clean) return;
+      const dir = dirOfSelected();
+      const path = dir ? dir + "/" + clean : clean;
+      await postJson("/api/file/create", { path, is_dir: isDir }).catch(console.error);
+      await renderTree();
+    });
+  });
+  window.addEventListener("keydown", async (e) => {
+    if (e.ctrlKey && e.key.toLowerCase() === "z") {
+      if (e.target.closest(".CodeMirror, input, textarea")) return;
+      e.preventDefault();
+      await postJson("/api/file/undo", {}).catch(console.error);
+      await renderTree();
+      return;
+    }
+    if (!state.selectedPath) return;
+    if (e.target.closest(".CodeMirror, input, textarea")) return;
+    if (e.key === "Delete") {
+      e.preventDefault();
+      await fetch(`/api/file?path=${encodeURIComponent(state.selectedPath)}`, { method: "DELETE" })
+        .catch(console.error);
+      await renderTree();
+    } else if (e.key === "F2") {
+      e.preventDefault();
+      const oldName = state.selectedPath.split("/").pop();
+      showInlineInput(oldName, "", async (newName) => {
+        if (newName !== oldName) {
+          await postJson("/api/file/rename", { path: state.selectedPath, new_name: newName })
+            .catch(console.error);
+          await renderTree();
+        }
+      });
+    }
+  });
+}
+
+/* ---------- shared shell ---------- */
+
+function toggleShell() {
+  const p = $("shellPanel");
+  p.hidden = !p.hidden;
+  if (!p.hidden) {
+    renderShell();
+    $("shellInput").focus();
+  }
+}
+
+async function renderShell() {
+  let data;
+  try {
+    data = await api("/api/shell/history");
+  } catch (_err) {
+    return;
+  }
+  const out = $("shellOutput");
+  out.innerHTML = "";
+  if (!data.commands.length) {
+    out.textContent = "No commands yet.";
+    return;
+  }
+  for (const c of data.commands) {
+    const row = document.createElement("div");
+    row.className = "shell-cmd " + c.source;
+    const head = document.createElement("div");
+    head.className = "shell-cmd-head";
+    head.textContent =
+      `[${c.source}] $ ${c.command}` + (c.status === "running" ? "  (running)" : "");
+    row.appendChild(head);
+    if (c.output) {
+      const pre = document.createElement("pre");
+      pre.className = "shell-cmd-out";
+      pre.textContent = c.output;
+      row.appendChild(pre);
+    }
+    out.appendChild(row);
+  }
+  out.scrollTop = out.scrollHeight;
+}
+
+async function runShell() {
+  const cmd = $("shellInput").value.trim();
+  if (!cmd) return;
+  $("shellInput").value = "";
+  postJson("/api/shell/run", { command: cmd }).catch(() => {});
+  await renderShell();
+  // poll until the command finishes
+  for (let i = 0; i < 240; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    const d = await api("/api/shell/history").catch(() => null);
+    if (!d || !d.commands.some((c) => c.status === "running")) {
+      await renderShell();
+      break;
+    }
+  }
+}
+
+/* ---------- settings ---------- */
+
+async function openSettings() {
+  if (window.njuagentAPI) {
+    const st = await window.njuagentAPI.keyStatus();
+    $("apiKeyStatus").textContent = st.set ? "API key is set." : "No API key set.";
+  } else {
+    $("apiKeyStatus").textContent =
+      "Set the API key in the app Settings (Electron) or via DEEPSEEK_API_KEY.";
+  }
+  $("apiKeyInput").value = "";
+  $("settingsModal").hidden = false;
+}
+
+/* ---------- resizable panes ---------- */
+
+function initResizers() {
+  const main = document.querySelector("main");
+  let dragging = null;
+  document.querySelectorAll(".resizer").forEach((rz) => {
+    rz.addEventListener("pointerdown", (e) => {
+      dragging = {
+        side: rz.dataset.side,
+        startX: e.clientX,
+        startTree: parseFloat(getComputedStyle(main).getPropertyValue("--tree-w")) || 240,
+        startChat: parseFloat(getComputedStyle(main).getPropertyValue("--chat-w")) || 400,
+      };
+      rz.classList.add("active");
+      rz.setPointerCapture(e.pointerId);
+    });
+    rz.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      const dx = e.clientX - dragging.startX;
+      if (dragging.side === "left") {
+        main.style.setProperty("--tree-w", Math.max(120, dragging.startTree + dx) + "px");
+      } else {
+        main.style.setProperty("--chat-w", Math.max(220, dragging.startChat - dx) + "px");
+      }
+    });
+    const end = () => {
+      dragging = null;
+      rz.classList.remove("active");
+    };
+    rz.addEventListener("pointerup", end);
+    rz.addEventListener("pointercancel", end);
+  });
+}
+
+async function refreshCurrentFile() {
+  if (state.currentPath) await openFile(state.currentPath);
 }
 
 /* ---------- sidebar tabs ---------- */
@@ -637,11 +936,11 @@ async function renderPending() {
     info.appendChild(pre);
     const ok = document.createElement("button");
     ok.className = "p-accept";
-    ok.textContent = "OK";
+    ok.textContent = "Keep";
     ok.title = "Accept changes";
     const x = document.createElement("button");
     x.className = "p-rollback";
-    x.textContent = "X";
+    x.textContent = "Rollback";
     x.title = "Rollback to last confirmed state";
     ok.onclick = async () => {
       await postJson("/api/pending/accept", { path: f.path }).catch(console.error);
@@ -660,6 +959,7 @@ async function renderPending() {
 
 async function refreshAfterPending(path) {
   await renderPending();
+  await renderTree();
   if (state.currentPath === path) await openFile(path);
 }
 
@@ -681,7 +981,7 @@ async function init() {
   });
   $("saveBtn").addEventListener("click", async () => {
     try {
-      await postJson("/api/file", { path: state.currentPath, content: $("editor").value });
+      await postJson("/api/file", { path: state.currentPath, content: editorCM.getValue() });
       $("fileStatus").textContent = "saved";
     } catch (err) {
       $("fileStatus").textContent = err.message;
@@ -694,12 +994,6 @@ async function init() {
   $("rollbackAll").addEventListener("click", async () => {
     await postJson("/api/pending/rollback", { all: true }).catch(console.error);
     await refreshAfterPending(null);
-  });
-  $("editor").addEventListener("keydown", (e) => {
-    if (e.key === "s" && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault();
-      $("saveBtn").click();
-    }
   });
   document.querySelectorAll(".sidebar-tabs .tab").forEach((b) => {
     b.addEventListener("click", () => switchTab(b.dataset.tab));
@@ -715,6 +1009,41 @@ async function init() {
       b.classList.toggle("active", state.searchOpts[key]);
     });
   });
+  initResizers();
+  initTreeOps();
+  $("settingsBtn").addEventListener("click", openSettings);
+  $("settingsClose").addEventListener("click", () => {
+    $("settingsModal").hidden = true;
+  });
+  $("shellForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    runShell();
+  });
+  $("shellStop").addEventListener("click", async () => {
+    await postJson("/api/shell/stop", {}).catch(console.error);
+    await renderShell();
+  });
+  $("shellClose").addEventListener("click", () => {
+    $("shellPanel").hidden = true;
+  });
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "`" && e.ctrlKey) {
+      e.preventDefault();
+      toggleShell();
+    }
+  });
+  $("apiKeySave").addEventListener("click", async () => {
+    const key = $("apiKeyInput").value.trim();
+    if (!key) return;
+    if (window.njuagentAPI) {
+      await window.njuagentAPI.setKey(key);
+      $("settingsModal").hidden = true;
+    } else {
+      $("apiKeyStatus").textContent =
+        "Setting the API key requires the Electron app.";
+    }
+  });
+  initEditor();
 
   try {
     const s = await api("/api/state");
@@ -755,6 +1084,7 @@ function renderHistory(messages) {
       }
     }
   }
+  highlightBlocks(box);
   box.scrollTop = box.scrollHeight;
 }
 
